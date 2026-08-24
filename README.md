@@ -33,7 +33,7 @@ API RESTful para o sistema de restaurante/franquia **Raiz do Nordeste**, constru
 ### 1. Clonar e instalar dependências
 
 ```bash
-git clone <URL-DO-REPOSITORIO>
+git clone https://github.com/matheus-pcchaves/raizdonordeste-api-backend
 cd raizdonordeste-api-backend
 npm install
 ```
