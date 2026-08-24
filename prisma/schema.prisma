@@ -1,0 +1,293 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  CLIENTE
+  ATENDENTE
+  COZINHA
+  GERENTE
+  ADMIN
+}
+
+enum StatusUnidade {
+  ATIVA
+  INATIVA
+}
+
+enum StatusProduto {
+  DISPONIVEL
+  INDISPONIVEL
+}
+
+enum CanalPedido {
+  APP
+  TOTEM
+  BALCAO
+  PICKUP
+  WEB
+}
+
+enum StatusPedido {
+  PENDENTE
+  AGUARDANDO_PAGAMENTO
+  CONFIRMADO
+  EM_PREPARO
+  PRONTO
+  ENTREGUE
+  CANCELADO
+}
+
+enum StatusPagamento {
+  APROVADO
+  NEGADO
+  PENDENTE
+  ERRO
+}
+
+enum TipoMovimentacaoEstoque {
+  ENTRADA
+  SAIDA
+  AJUSTE
+}
+
+enum TipoCampanha {
+  PERCENTUAL
+  VALOR_FIXO
+}
+
+enum TipoExtrato {
+  ACUMULO
+  RESGATE
+  EXPIRACAO
+}
+
+// ─── Modelos ──────────────────────────────────────────────────────────────────
+
+model Usuario {
+  id              String    @id @default(uuid())
+  nome            String
+  email           String    @unique
+  senhaHash       String    @map("senha_hash")
+  role            Role      @default(CLIENTE)
+  fidelidadeOptIn Boolean   @default(false) @map("fidelidade_opt_in")
+  ultimoLogin     DateTime? @map("ultimo_login")
+  anonimizado     Boolean   @default(false)
+  criadoEm       DateTime  @default(now()) @map("criado_em")
+  atualizadoEm   DateTime  @updatedAt @map("atualizado_em")
+
+  pedidos              Pedido[]
+  movimentacoesEstoque MovimentacaoEstoque[]
+  fidelidade           Fidelidade?
+
+  @@map("usuarios")
+}
+
+model Unidade {
+  id        String        @id @default(uuid())
+  nome      String
+  endereco  String
+  cnpj      String        @unique
+  telefone  String
+  status    StatusUnidade @default(ATIVA)
+  criadoEm DateTime      @default(now()) @map("criado_em")
+
+  pedidos          Pedido[]
+  estoques         Estoque[]
+  cardapioUnidade  CardapioUnidade[]
+  campanhas        Campanha[]
+
+  @@map("unidades")
+}
+
+model Categoria {
+  id       String    @id @default(uuid())
+  nome     String    @unique
+  descricao String?
+
+  produtos Produto[]
+
+  @@map("categorias")
+}
+
+model Produto {
+  id          String        @id @default(uuid())
+  nome        String
+  descricao   String?
+  precoBase   Decimal       @map("preco_base") @db.Decimal(10, 2)
+  imagemUrl   String?       @map("imagem_url")
+  status      StatusProduto @default(DISPONIVEL)
+  categoriaId String        @map("categoria_id")
+  criadoEm   DateTime      @default(now()) @map("criado_em")
+
+  categoria       Categoria         @relation(fields: [categoriaId], references: [id])
+  itensPedido     ItemPedido[]
+  estoques        Estoque[]
+  cardapios       CardapioUnidade[]
+  campanhasProduto CampanhaProduto[]
+
+  @@map("produtos")
+}
+
+model CardapioUnidade {
+  id              String  @id @default(uuid())
+  unidadeId       String  @map("unidade_id")
+  produtoId       String  @map("produto_id")
+  precoEspecifico Decimal? @map("preco_especifico") @db.Decimal(10, 2)
+  ativo           Boolean @default(true)
+
+  unidade Unidade @relation(fields: [unidadeId], references: [id])
+  produto Produto @relation(fields: [produtoId], references: [id])
+
+  @@unique([unidadeId, produtoId])
+  @@map("cardapio_unidade")
+}
+
+model Estoque {
+  id               String   @id @default(uuid())
+  unidadeId        String   @map("unidade_id")
+  produtoId        String   @map("produto_id")
+  quantidade       Decimal  @db.Decimal(10, 3)
+  unidadeMedida    String   @map("unidade_medida") @default("UN")
+  quantidadeMinima Decimal  @map("quantidade_minima") @db.Decimal(10, 3) @default(0)
+  atualizadoEm    DateTime @updatedAt @map("atualizado_em")
+
+  unidade       Unidade               @relation(fields: [unidadeId], references: [id])
+  produto       Produto               @relation(fields: [produtoId], references: [id])
+  movimentacoes MovimentacaoEstoque[]
+
+  @@unique([unidadeId, produtoId])
+  @@map("estoques")
+}
+
+model MovimentacaoEstoque {
+  id         String                  @id @default(uuid())
+  estoqueId  String                  @map("estoque_id")
+  usuarioId  String?                 @map("usuario_id")
+  tipo       TipoMovimentacaoEstoque
+  quantidade Decimal                 @db.Decimal(10, 3)
+  motivo     String
+  criadoEm  DateTime                @default(now()) @map("criado_em")
+
+  estoque Estoque  @relation(fields: [estoqueId], references: [id])
+  usuario Usuario? @relation(fields: [usuarioId], references: [id])
+
+  @@map("movimentacoes_estoque")
+}
+
+model Pedido {
+  id                  String      @id @default(uuid())
+  numeroPedido        String      @unique @map("numero_pedido")
+  clienteId           String?     @map("cliente_id")
+  unidadeId           String      @map("unidade_id")
+  canalPedido         CanalPedido @map("canal_pedido")
+  status              StatusPedido @default(PENDENTE)
+  valorTotal          Decimal     @map("valor_total") @db.Decimal(10, 2)
+  descontoTotal       Decimal     @map("desconto_total") @db.Decimal(10, 2) @default(0)
+  motivoCancelamento  String?     @map("motivo_cancelamento")
+  criadoEm           DateTime    @default(now()) @map("criado_em")
+  atualizadoEm       DateTime    @updatedAt @map("atualizado_em")
+
+  cliente   Usuario?     @relation(fields: [clienteId], references: [id])
+  unidade   Unidade      @relation(fields: [unidadeId], references: [id])
+  itens     ItemPedido[]
+  pagamento Pagamento?
+
+  @@index([unidadeId, status])
+  @@index([clienteId])
+  @@index([canalPedido])
+  @@map("pedidos")
+}
+
+model ItemPedido {
+  id               String  @id @default(uuid())
+  pedidoId         String  @map("pedido_id")
+  produtoId        String  @map("produto_id")
+  nomeProduto      String  @map("nome_produto")
+  quantidade       Int
+  precoUnitario    Decimal @map("preco_unitario") @db.Decimal(10, 2)
+  descontoAplicado Decimal @map("desconto_aplicado") @db.Decimal(10, 2) @default(0)
+  origemDesconto   String? @map("origem_desconto")
+
+  pedido  Pedido  @relation(fields: [pedidoId], references: [id])
+  produto Produto @relation(fields: [produtoId], references: [id])
+
+  @@map("itens_pedido")
+}
+
+model Pagamento {
+  id               String         @id @default(uuid())
+  pedidoId         String         @unique @map("pedido_id")
+  metodoPagamento  String         @map("metodo_pagamento")
+  status           StatusPagamento @default(PENDENTE)
+  payloadResposta  Json?          @map("payload_resposta")
+  criadoEm        DateTime       @default(now()) @map("criado_em")
+  atualizadoEm    DateTime       @updatedAt @map("atualizado_em")
+
+  pedido Pedido @relation(fields: [pedidoId], references: [id])
+
+  @@map("pagamentos")
+}
+
+model Fidelidade {
+  id           String   @id @default(uuid())
+  clienteId    String   @unique @map("cliente_id")
+  pontosSaldo  Int      @default(0) @map("pontos_saldo")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
+
+  cliente  Usuario            @relation(fields: [clienteId], references: [id])
+  extratos ExtratoFidelidade[]
+
+  @@map("fidelidade")
+}
+
+model ExtratoFidelidade {
+  id          String      @id @default(uuid())
+  fidelidadeId String     @map("fidelidade_id")
+  pedidoId    String?     @map("pedido_id")
+  tipo        TipoExtrato
+  pontos      Int
+  descricao   String
+  criadoEm   DateTime    @default(now()) @map("criado_em")
+
+  fidelidade Fidelidade @relation(fields: [fidelidadeId], references: [id])
+
+  @@map("extratos_fidelidade")
+}
+
+model Campanha {
+  id         String      @id @default(uuid())
+  nome       String
+  tipo       TipoCampanha
+  valor      Decimal     @db.Decimal(10, 2)
+  unidadeId  String?     @map("unidade_id")
+  dataInicio DateTime    @map("data_inicio")
+  dataFim    DateTime    @map("data_fim")
+  ativa      Boolean     @default(true)
+
+  unidade         Unidade?          @relation(fields: [unidadeId], references: [id])
+  campanhaProdutos CampanhaProduto[]
+
+  @@map("campanhas")
+}
+
+model CampanhaProduto {
+  campanhaId String @map("campanha_id")
+  produtoId  String @map("produto_id")
+
+  campanha Campanha @relation(fields: [campanhaId], references: [id])
+  produto  Produto  @relation(fields: [produtoId], references: [id])
+
+  @@id([campanhaId, produtoId])
+  @@map("campanha_produto")
+}
